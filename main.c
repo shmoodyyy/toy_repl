@@ -173,12 +173,14 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
         }
         printf("\n\0");
     }
+    Token cur;
     for (int i = 0; i < count; ++i) {
-        Token cur = token_stack[i];
+        cur = token_stack[i];
         if (next_expected != TOKEN_ANY && cur.type != next_expected) {
             printf("eval error, expected token %s, got %s\n", token_type_str(next_expected), token_type_str(cur.type));
             if (cur.payload != 0)
                 free(cur.payload);
+            cur.payload = 0;
             return;
         }
 
@@ -196,7 +198,12 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
                 printf("variable '%s' undeclared\n", name);
             else
                 printf("'%s' = %i\n", name, var->value.integral);
-            free(name);
+
+            if (cur.payload) {
+                free(cur.payload);
+                cur.payload = 0;
+            }
+            next_expected = TOKEN_ANY;
             break;
         }
 
@@ -211,8 +218,11 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
             char* name = cur.payload;
             i += 1; cur = token_stack[i];
             if (cur.type != next_expected) {
-                printf("expected variable declaration for '%s' with '='\n", name);
-                free(name);
+                if (cur.payload != 0) {
+                    printf("expected variable declaration for '%s' with '='\n", name);
+                    free(cur.payload);
+                    name = 0;
+                }
                 break;
             }
             next_expected = TOKEN_NUMBER;
@@ -220,12 +230,21 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
             if (cur.type != next_expected) {
                 printf("expected numeric value for variable '%s'\n", name);
             }
-            push_variable(stack, (Variable){
-                .name = name,
-                .type = TYPE_NUMBER,
-                .value = { .integral = *(int*)cur.payload }
-            });
-            free(cur.payload);
+            Variable* found = find_variable(stack, name);
+            if (found != 0) {
+                found->value.integral = *(int*)cur.payload;
+            } else {
+                push_variable(stack, (Variable){
+                    .name = name,
+                    .type = TYPE_NUMBER,
+                    .value = { .integral = *(int*)cur.payload }
+                });
+            }
+            if (cur.payload) {
+                free(cur.payload);
+                cur.payload = 0;
+            }
+            next_expected = TOKEN_ANY;
             break;
         }
 
@@ -250,6 +269,13 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
             printf("unexpected token.\n");
             next_expected = TOKEN_ANY;
             break;
+        }
+    }
+    if (next_expected != TOKEN_ANY && next_expected != TOKEN_NONE) {
+        printf("abrupt expression end, expected %s\n", token_type_str(next_expected));
+        if (cur.payload != 0) {
+            free(cur.payload);
+            cur.payload = 0;
         }
     }
     printf("\0");

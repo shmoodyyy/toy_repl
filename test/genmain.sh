@@ -4,8 +4,8 @@ cd -- "$(dirname "$0")" >/dev/null 2>&1
 set -e
 rm -f main.c
 touch main.c
-TESTS=$(grep -R "TEST_CASE" | grep -v "TEST_CASE(x)" | sed "s/.*TEST_CASE(\(.*\))/\1/")
-INCLUDES=$(grep -R "TEST_CASE" | grep -v "TEST_CASE(x)" | sed "s/\(.*\.h\):.*/\1/")
+TESTS=$(grep -R "TEST_CASE" | grep ".*\.[ch]:TEST_CASE" |grep -v "TEST_CASE(x)" | sed "s/.*TEST_CASE(\(.*\))/\1/")
+INCLUDES=$(grep -R "TEST_CASE" | grep ".*\.[ch]:TEST_CASE" | grep -v "TEST_CASE(x)" | sed "s/\(.*\.h\):.*/\1/")
 
 echo "#include \"test.h\"" > main.c
 for i in ${INCLUDES}; do

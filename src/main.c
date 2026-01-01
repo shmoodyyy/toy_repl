@@ -1,4 +1,6 @@
 #include "stack.h"
+#include "frontend/ast.h"
+#include "frontend/token.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -7,40 +9,6 @@
 
 #define BUF_SIZE 1024
 #define PREFIX "<sy> "
-
-typedef enum
-{
-    TOKEN_NONE = 0,
-    TOKEN_PRINT,
-    TOKEN_DECLARATION,
-    TOKEN_OPERATOR,
-    TOKEN_LITERAL,
-    TOKEN_EQUALS,
-    TOKEN_NUMBER,
-
-    // exclusive value for next expected token
-    TOKEN_ANY,
-} TokenType;
-
-const char* token_type_str(TokenType type)
-{
-    switch (type) {
-        case TOKEN_NONE:        return "TOKEN_NONE"; 
-        case TOKEN_PRINT:       return "TOKEN_PRINT"; 
-        case TOKEN_OPERATOR:    return "TOKEN_OPERATOR"; 
-        case TOKEN_DECLARATION: return "TOKEN_DECLARATION"; 
-        case TOKEN_LITERAL:     return "TOKEN_LITERAL"; 
-        case TOKEN_EQUALS:      return "TOKEN_EQUALS"; 
-        case TOKEN_NUMBER:      return "TOKEN_NUMBER"; 
-        case TOKEN_ANY:         return "TOKEN_ANY"; 
-    }
-}
-
-typedef struct
-{
-    void* payload;
-    TokenType type;
-} Token;
 
 char to_lower(char c)
 {
@@ -72,10 +40,10 @@ int is_numeric(char c)
 
 int char_valid_literal(char c, int is_first)
 {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (is_first * (c >= '0' || c <= '9'));
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (is_first && (c >= '0' || c <= '9'));
 }
 
-Token try_parse_literal(const char* in, int* pos)
+Token try_parse_identifier(const char* in, int* pos)
 {
     int i = 0;
     char c = *(in + *pos + i);
@@ -96,7 +64,44 @@ Token try_parse_literal(const char* in, int* pos)
     *pos += i;
     return (Token) {
         .payload    = payload,
-        .type       = TOKEN_LITERAL
+        .type       = TOKEN_STRING
+    };
+}
+
+Token try_parse_string(const char* in, int* pos)
+{
+    int i = 0;
+    char escape_quote;
+    char c = *(in + *pos + i);
+    if (c == '\n') return (Token) {0};
+
+    if (c == '"' || c == '\'') {
+        escape_quote = c;
+        *pos += 1;
+    } else { return (Token) {0}; }
+
+    int in_string = 1;
+    while (in_string) {
+        char previous = c;
+        i += 1;
+        c = *(in + *pos + i);
+        if (c == escape_quote && previous != '\\') {
+            i += 1;
+            break;
+        }
+    }
+    if (i <= 0) return (Token) {0};
+    char* payload = malloc(i);
+    memcpy(payload, in + *pos, i - 1);
+    for (int j = 0; j < i - 1; ++j)
+        if (payload[j] == '\n')
+            payload[j] = ' ';
+    payload[i] = '\0';
+
+    *pos += i;
+    return (Token) {
+        .payload    = payload,
+        .type       = TOKEN_STRING
     };
 }
 
@@ -131,19 +136,23 @@ Token parse_next(const char* str, int* pos, int count)
         if (*pos >= count) return (Token) {0};
 
         Token parsed = { .type = TOKEN_NONE };
-        if ((parsed = try_parse(str, pos, "print",  TOKEN_PRINT),       parsed.type != TOKEN_NONE)) goto eval_good;
-        if ((parsed = try_parse(str, pos, "=",      TOKEN_EQUALS),      parsed.type != TOKEN_NONE)) goto eval_good;
-        if ((parsed = try_parse(str, pos, "let",    TOKEN_DECLARATION), parsed.type != TOKEN_NONE)) goto eval_good;
-        if ((parsed = try_parse(str, pos, "+",      TOKEN_OPERATOR),    parsed.type != TOKEN_NONE)) goto eval_good;
-        if ((parsed = try_parse(str, pos, "-",      TOKEN_OPERATOR),    parsed.type != TOKEN_NONE)) goto eval_good;
+        do {
+            if ((parsed = try_parse(str, pos, "print",  TOKEN_PRINT),       parsed.type != TOKEN_NONE)) break;
+            if ((parsed = try_parse(str, pos, "=",      TOKEN_EQUALS),      parsed.type != TOKEN_NONE)) break;
+            if ((parsed = try_parse(str, pos, "let",    TOKEN_DECLARATION), parsed.type != TOKEN_NONE)) break;
+            if ((parsed = try_parse(str, pos, "+",      TOKEN_OPERATOR),    parsed.type != TOKEN_NONE)) break;
+            if ((parsed = try_parse(str, pos, "-",      TOKEN_OPERATOR),    parsed.type != TOKEN_NONE)) break;
 
-        // try parsing as literal value
-        if ((parsed = try_parse_literal(str, pos),                      parsed.type != TOKEN_NONE)) goto eval_good;
-        if ((parsed = try_parse_numeric(str, pos),                      parsed.type != TOKEN_NONE)) goto eval_good;
+            if ((parsed = try_parse_string(str, pos),                       parsed.type != TOKEN_NONE)) break;
+            if ((parsed = try_parse_identifier(str, pos),                   parsed.type != TOKEN_NONE)) break;
+            if ((parsed = try_parse_numeric(str, pos),                      parsed.type != TOKEN_NONE)) break;
+        } while (0);
+
+        if (parsed.type != TOKEN_NONE) {
+            return parsed;
+        }
+
         (*pos) += 1;
-        continue;
-eval_good:
-        return parsed;
     }
     return (Token) {0};
 }
@@ -158,7 +167,7 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
                 printf(" -> ");
             }
             switch (token_stack[i].type) {
-            case TOKEN_LITERAL:
+            case TOKEN_STRING:
                 printf("%s { %s }", token_type_str(token_stack[i].type), (char*)token_stack[i].payload);
                 break;
 
@@ -171,7 +180,7 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
                 break;
             }
         }
-        printf("\n\0");
+        printf("\n");
     }
     Token cur;
     for (int i = 0; i < count; ++i) {
@@ -186,7 +195,7 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
 
         switch (cur.type) {
         case TOKEN_PRINT: {
-            next_expected = TOKEN_LITERAL;
+            next_expected = TOKEN_STRING;
             i += 1; cur = token_stack[i];
             if (cur.type != next_expected) {
                 printf("expected literal variable name print out\n");
@@ -208,7 +217,7 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
         }
 
         case TOKEN_DECLARATION: {
-            next_expected = TOKEN_LITERAL;
+            next_expected = TOKEN_STRING;
             i += 1; cur = token_stack[i];
             if (cur.type != next_expected) {
                 printf("expected literal variable name to follow 'let'\n");
@@ -248,7 +257,11 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
             break;
         }
 
-        case TOKEN_LITERAL:
+        case TOKEN_IDENTIFIER:
+            next_expected = TOKEN_EQUALS;
+            break;
+
+        case TOKEN_STRING:
             next_expected = TOKEN_EQUALS;
             break;
 
@@ -278,7 +291,6 @@ void eval_tokens(VariableStack* stack, Token* token_stack, int count)
             cur.payload = 0;
         }
     }
-    printf("\0");
 }
 
 void parse_and_eval(VariableStack* stack, const char* expression, int count)

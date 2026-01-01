@@ -2,4 +2,4 @@ CompileFlags:
   Add:
     - "-I/nix/store/gi4cz4ir3zlwhf1azqfgxqdnczfrwsr7-glibc-2.40-66-dev/include"
     - "-I/nix/store/xm08aqdd7pxcdhm0ak6aqb1v7hw5q6ri-gcc-14.3.0-lib/lib/gcc/x86_64-unknown-linux-gnu/14.3.0/include"
-    - "-Isrc/"
+    - "-I./"

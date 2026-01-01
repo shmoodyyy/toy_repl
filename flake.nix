@@ -20,6 +20,7 @@ CompileFlags:
   Add:
     - "-I${pkgs.glibc.dev}/include"
     - "-I${pkgs.gcc.cc.lib}/lib/gcc/x86_64-unknown-linux-gnu/${pkgs.gcc.cc.version}/include"
+    - "-Isrc/"
 EOF
         '';
       };
